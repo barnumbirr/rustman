@@ -60,6 +60,7 @@ pub(crate) fn init() -> (AppState, Task<Message>) {
     let mut global_pre_request_script = String::new();
     let mut global_test_script = String::new();
     let mut sidebar_width = 200.0;
+    #[cfg(feature = "self-update")]
     let mut auto_check_updates = false;
     let mut tls_options = crate::services::http::TlsOptions::default();
     if let Some(sess) = session {
@@ -68,7 +69,10 @@ pub(crate) fn init() -> (AppState, Task<Message>) {
         global_pre_request_script = sess.global_pre_request_script.clone();
         global_test_script = sess.global_test_script.clone();
         sidebar_width = sess.sidebar_width;
-        auto_check_updates = sess.auto_check_updates;
+        #[cfg(feature = "self-update")]
+        {
+            auto_check_updates = sess.auto_check_updates;
+        }
         tls_options = crate::services::http::TlsOptions {
             accept_invalid_certs: sess.tls_accept_invalid_certs,
             http1_only: sess.tls_http1_only,
@@ -193,7 +197,9 @@ pub(crate) fn init() -> (AppState, Task<Message>) {
         sidebar_width,
         horizontal_layout: false,
         ui_scale: 1.0,
+        #[cfg(feature = "self-update")]
         update: crate::app::UpdateState::Idle,
+        #[cfg(feature = "self-update")]
         auto_check_updates,
         default_timeout_text: default_timeout_ms.to_string(),
         default_timeout_ms,
@@ -206,21 +212,26 @@ pub(crate) fn init() -> (AppState, Task<Message>) {
         session_dirty: false,
     };
 
+    #[cfg(feature = "self-update")]
     let update_task = Task::perform(crate::services::update::check(), |res| match res {
         Ok(opt) => Message::Update(crate::message::UpdateMsg::Checked(Ok(opt))),
         Err(e) => Message::Update(crate::message::UpdateMsg::Checked(Err(e))),
     });
 
     // Opted out (issue #57): zero boot-time network. The manual Check button
-    // in Settings still works — it dispatches its own task on demand.
-    (
-        state,
-        if auto_check_updates {
-            update_task
-        } else {
-            Task::none()
-        },
-    )
+    // in Settings still works — it dispatches its own task on demand. With
+    // the `self-update` feature compiled out there is no check at all: the
+    // package manager delivers updates.
+    #[cfg(feature = "self-update")]
+    let boot_task = if auto_check_updates {
+        update_task
+    } else {
+        Task::none()
+    };
+    #[cfg(not(feature = "self-update"))]
+    let boot_task = Task::none();
+
+    (state, boot_task)
 }
 
 fn parse_sidebar_panel(s: &str) -> crate::message::SidebarPanel {

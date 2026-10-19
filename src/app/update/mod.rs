@@ -13,6 +13,7 @@ mod response;
 mod save_dialog;
 mod settings;
 mod sidebar;
+#[cfg(feature = "self-update")]
 mod updater;
 mod ws;
 
@@ -84,6 +85,7 @@ fn dispatch(state: &mut AppState, message: Message) -> Task<Message> {
         Message::App(msg) => app_msg::handle(state, msg),
         Message::Settings(msg) => settings::handle(state, msg),
         Message::Layout(msg) => handle_layout(state, msg),
+        #[cfg(feature = "self-update")]
         Message::Update(msg) => updater::handle(state, msg),
     }
 }

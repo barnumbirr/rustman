@@ -7,5 +7,6 @@ pub mod sidebar;
 pub mod styles;
 pub mod theme;
 pub mod tree_label;
+#[cfg(feature = "self-update")]
 pub mod update_banner;
 pub mod widgets;

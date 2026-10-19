@@ -124,6 +124,17 @@ cargo build --release
 
 The binary ends up at `target/release/rustman`. The longer guide lives in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
+Package managers should build with `--no-default-features`:
+
+```sh
+cargo build --release --no-default-features
+```
+
+That compiles out the in-app updater entirely — no launch check, no
+Settings → Updates card, no update banner, none of the crates that swap the
+running binary — so the package manager stays the only thing that touches the
+installed executable. The default build keeps the updater.
+
 There is no WebKitGTK, GTK or pdfium build dependency: HTML responses are
 rendered as readable text.
 

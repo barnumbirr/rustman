@@ -4,6 +4,11 @@
 //! matching platform asset, then extracts the binary and atomically swaps the
 //! running executable. The asset tokens / binary name must match the artefacts
 //! produced by `.github/workflows/release.yml`.
+//!
+//! Compiled only with the `self-update` feature (on by default). Package
+//! managers build with `--no-default-features`, which removes this whole
+//! module plus the boot-time check, the Settings → Updates card and the update
+//! banner: the package manager owns the installed binary and delivers updates.
 
 const LATEST_RELEASE_API: &str =
     "https://api.github.com/repos/rust-man-org/rustman/releases/latest";

@@ -15,6 +15,7 @@ pub enum Message {
     App(AppMsg),
     Settings(SettingsMsg),
     Layout(LayoutMsg),
+    #[cfg(feature = "self-update")]
     Update(UpdateMsg),
 }
 
@@ -447,6 +448,7 @@ pub enum SettingsMsg {
     /// Footer tapped: three taps unlock the hidden creator card.
     CreatorTapped,
     /// Toggle automatic update checks on launch (issue #57).
+    #[cfg(feature = "self-update")]
     AutoCheckUpdatesToggled,
 }
 
@@ -461,6 +463,10 @@ pub enum TlsOption {
 
 // ── Auto-update ───────────────────────────────────────────────────────────────
 
+/// Messages for the in-app updater. The enum (and its `Message::Update`
+/// carrier) only exists in builds with the `self-update` feature; in a
+/// package-manager build the whole update flow is compiled out.
+#[cfg(feature = "self-update")]
 #[derive(Debug, Clone)]
 pub enum UpdateMsg {
     /// Start a background check against GitHub releases.

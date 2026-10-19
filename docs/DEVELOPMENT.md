@@ -8,6 +8,8 @@ I try to be honest here. Where something is UI only, stubbed, or half wired, I s
 
 You need Rust 1.85 or newer. Rustman is edition 2024, as is the `iced-code-editor` fork it builds against, so older toolchains will not build it. The latest stable Rust works fine. Two dependencies come from `rust-man-org` repos on GitHub (the engine and the editor fork) and are fetched by cargo automatically. You also need a C toolchain and CMake, because git2 builds vendored libgit2 and OpenSSL and rusqlite bundles SQLite, all from source. On Linux add the X, xkb, and dbus dev packages (`libxkbcommon-dev libxi-dev libx11-dev libxcb1-dev libxcb-xkb-dev libdbus-1-dev pkg-config cmake build-essential`). Build with `cargo build --release` and the binary lands at `target/release/rustman`. Day to day I just use `cargo run`.
 
+For distro packaging, build with `--no-default-features`: that compiles out the in-app updater (boot check, Settings → Updates card, update banner, and the binary-swapping code) so the package manager is the only thing that delivers updates.
+
 ## Architecture
 
 ### Module layout
@@ -18,7 +20,7 @@ Everything under `src/` splits into six concerns.
 |--------|------------------|
 | `domain/` | Pure data and logic, no I/O. `SavedRequest` and `Collection` (`collection.rs`), `KeyValue`, `FormField`, and the auth and body enums (`request.rs`), `HttpResponse`, `TestResult`, `ConsoleEntry` (`response.rs`), `AppEnvironment` and `substitute()` (`environment.rs`). |
 | `state/` | Mutable runtime state. `RequestTabState` and `TabSnapshot` (`tabs.rs`), `AppSession` (`session.rs`), sidebar state. This is the in memory model the UI draws and the reducers change. |
-| `services/` | All the I/O and side effects. `http.rs` (reqwest), `storage.rs` (SQLite), `vcs.rs` (git2 and your system git), `websocket.rs` (tokio-tungstenite), `update.rs` (self update), `curl/` and `import/` (parsers and generators), `cache.rs` and `response_store.rs`. |
+| `services/` | All the I/O and side effects. `http.rs` (reqwest), `storage.rs` (SQLite), `vcs.rs` (git2 and your system git), `websocket.rs` (tokio-tungstenite), `update.rs` (self update, behind the `self-update` feature), `curl/` and `import/` (parsers and generators), `cache.rs` and `response_store.rs`. |
 | `app/` | The core. `mod.rs` holds `AppState` and the `update()` entry, `boot.rs` builds the first state from SQLite, `session.rs` persists the session, `request_ops.rs` assembles and sends requests, and `update/` holds the per message reducers. |
 | `ui/` | View code only. It reads `AppState` and emits messages. It never mutates state. |
 | `jobs/` | Background task bookkeeping. `JobManager` (`manager.rs`) is a per tab generation and cancellation slot table keyed by `JobKind`. |

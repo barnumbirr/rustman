@@ -6,6 +6,7 @@ pub mod import;
 pub mod repos;
 pub mod spreadsheet;
 pub mod storage;
+#[cfg(feature = "self-update")]
 pub mod update;
 pub mod vcs;
 pub mod websocket;

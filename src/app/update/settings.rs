@@ -54,6 +54,7 @@ pub(super) fn handle(state: &mut AppState, msg: SettingsMsg) -> Task<Message> {
                 state.creator_unlocked = !state.creator_unlocked;
             }
         }
+        #[cfg(feature = "self-update")]
         SettingsMsg::AutoCheckUpdatesToggled => {
             state.auto_check_updates = !state.auto_check_updates;
         }

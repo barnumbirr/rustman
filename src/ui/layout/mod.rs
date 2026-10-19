@@ -26,10 +26,13 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
             .on_press(Message::Sidebar(SidebarMsg::ContextMenuClosed))
             .on_right_press(Message::Sidebar(SidebarMsg::ContextMenuClosed))
             .into();
+    #[cfg(feature = "self-update")]
     let root: Element<Message> = match crate::ui::update_banner::view(state) {
         Some(banner) => column![banner, main].into(),
         None => main.into(),
     };
+    #[cfg(not(feature = "self-update"))]
+    let root: Element<Message> = main;
 
     if state.palette_open {
         iced::widget::stack![root, crate::ui::command_palette::view(state)].into()

@@ -5,9 +5,10 @@ use iced::{
 
 const LOGO_SVG: &[u8] = include_bytes!("../../../public/rustman-logo.svg");
 
+#[cfg(feature = "self-update")]
+use crate::{app::UpdateState, message::UpdateMsg};
 use crate::{
-    app::UpdateState,
-    message::{AppMsg, Message, SettingsMsg, UpdateMsg},
+    message::{AppMsg, Message, SettingsMsg},
     ui::theme::{Palette, TEXT_SM, THEMES, ThemeSpec},
     ui::tree_label::{tree_label, tree_label_styled},
 };
@@ -28,6 +29,7 @@ pub fn view(state: &crate::app::AppState) -> Element<'_, Message> {
         state.global_test_editor.text().len(),
         state.sidebar_width,
     ));
+    #[cfg(feature = "self-update")]
     let updates = card(build_updates(
         &state.update,
         state.sidebar_width,
@@ -36,28 +38,30 @@ pub fn view(state: &crate::app::AppState) -> Element<'_, Message> {
     let shortcuts = card(build_shortcuts(state.sidebar_width));
     let footer = build_footer(state.creator_unlocked, state.sidebar_width);
 
-    scrollable(
-        column![
-            header,
-            profile,
-            git_identity,
-            appearance,
-            layout,
-            request_defaults,
-            tls,
-            global_scripts,
-            updates,
-            shortcuts,
-            footer
-        ]
-        .spacing(6)
-        .padding(iced::Padding {
-            top: 0.0,
-            right: 8.0,
-            bottom: 8.0,
-            left: 8.0,
-        }),
-    )
+    let mut sections = column![
+        header,
+        profile,
+        git_identity,
+        appearance,
+        layout,
+        request_defaults,
+        tls,
+        global_scripts,
+    ];
+    // The Updates card only exists in builds with the in-app updater; in a
+    // package-manager build (`--no-default-features`) it is omitted entirely.
+    #[cfg(feature = "self-update")]
+    {
+        sections = sections.push(updates);
+    }
+    sections = sections.push(shortcuts).push(footer);
+
+    scrollable(sections.spacing(6).padding(iced::Padding {
+        top: 0.0,
+        right: 8.0,
+        bottom: 8.0,
+        left: 8.0,
+    }))
     .height(Length::Fill)
     .style(crate::ui::theme::hidden_scrollbar)
     .into()
@@ -227,7 +231,7 @@ fn build_header() -> Element<'static, Message> {
                         .font(crate::ui::theme::MONO),
                     Space::new().width(5),
                     container(
-                        text(format!("v{}", crate::services::update::current_version()))
+                        text(format!("v{}", env!("CARGO_PKG_VERSION")))
                             .size(9)
                             .color(Palette::text_muted())
                             .font(crate::ui::theme::MONO)
@@ -437,6 +441,7 @@ fn build_layout(horizontal: bool, content_width: f32) -> Element<'static, Messag
     col.into()
 }
 
+#[cfg(feature = "self-update")]
 fn build_updates(
     update: &UpdateState,
     content_width: f32,

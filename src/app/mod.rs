@@ -93,10 +93,14 @@ pub struct AppState {
     pub horizontal_layout: bool,
     /// UI zoom level (0.7 – 2.0). Applied via iced scale_factor.
     pub ui_scale: f64,
-    /// Auto-update progress for the banner + settings panel.
+    /// Auto-update progress for the banner + settings panel. Absent when the
+    /// `self-update` feature is compiled out (package-manager builds).
+    #[cfg(feature = "self-update")]
     pub update: UpdateState,
     /// Check GitHub releases automatically on launch (issue #57). Off means
-    /// zero boot-time network: the manual Check button still works.
+    /// zero boot-time network: the manual Check button still works. Absent
+    /// without the `self-update` feature.
+    #[cfg(feature = "self-update")]
     pub auto_check_updates: bool,
     /// Default request timeout in ms, applied to every request (used to be
     /// configurable per-tab; moved to a single global setting).
@@ -120,7 +124,9 @@ pub struct AppState {
     pub session_dirty: bool,
 }
 
-/// State machine for the self-update flow.
+/// State machine for the self-update flow. Only compiled with the
+/// `self-update` feature.
+#[cfg(feature = "self-update")]
 #[derive(Debug, Clone, Default)]
 pub enum UpdateState {
     #[default]
