@@ -46,6 +46,7 @@ This is not a startup and I am not trying to sell you anything. It is a tool I w
 ## Features
 
 - **Pure native GUI.** Built with [iced](https://github.com/iced-rs/iced). No webview, no Electron, no JavaScript runtime.
+- **Portable Linux build.** No WebKitGTK, GTK or pdfium dependency, so one binary runs on Debian, Arch, NixOS, immutable distros and minimal systems. HTML responses render as readable text.
 - **Native Rust HTTP engine.** Requests go through reqwest, so no browser CORS limits and no response size caps.
 - **WebSocket.** Type a ws:// or wss:// URL and the whole panel flips into WebSocket mode. Connect, then send and receive in real time on a live feed.
 - **Code editor for body and response.** A syntax highlighted, line numbered editor (the rust-man-org fork of iced-code-editor, backed by syntect) for the request body and the response, with full text selection.
@@ -96,12 +97,12 @@ Grab the latest binary from the [releases page](https://github.com/rust-man-org/
 | macOS (Apple Silicon + Intel) | `Rustman-macos-universal.dmg` |
 | Windows x86_64 | `rustman-windows-x86_64.zip` |
 | Linux x86_64 | `rustman-linux-x86_64.tar.gz` |
-| Linux x86_64, no WebKit | `rustman-linux-x86_64-nokit.tar.gz` |
+| Linux arm64 | `rustman-linux-aarch64.tar.gz` |
 
-The full Linux build embeds HTML previews with the system WebKitGTK, so it
-needs `libwebkit2gtk-4.1` installed. The **nokit** build drops that
-dependency entirely (handy on immutable distros like Fedora Atomic) — HTML
-responses render as readable text instead.
+The Linux build has no WebKitGTK, GTK or PDF runtime dependency, so the same
+binary runs on Debian, Ubuntu, Arch, NixOS, immutable distros and minimal
+systems, on both x86_64 and arm64. HTML responses are shown as readable text
+rather than a rendered page, and PDFs show a binary-response summary.
 
 ## Build from source
 
@@ -123,15 +124,8 @@ cargo build --release
 
 The binary ends up at `target/release/rustman`. The longer guide lives in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
-To build without the WebKit HTML preview (no `libwebkit2gtk` needed at
-build or run time — HTML responses fall back to readable text):
-
-```sh
-cargo build --release --no-default-features
-```
-
-and skip the `libwebkit2gtk-4.1-dev`, `libjavascriptcoregtk-4.1-dev`,
-`libsoup-3.0-dev` and `libgtk-3-dev` packages below.
+There is no WebKitGTK, GTK or pdfium build dependency: HTML responses are
+rendered as readable text.
 
 ### Linux system dependencies
 

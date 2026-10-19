@@ -28,23 +28,14 @@ pub struct WsMessage {
 }
 
 /// A rich preview for a binary response body, populated asynchronously once
-/// the response arrives (see `AppMsg::SpreadsheetPreviewReady` /
-/// `AppMsg::PdfPreviewReady`). `None` means either the response isn't binary,
-/// the binary type has no richer preview, or the preview hasn't finished
-/// rendering/parsing yet.
+/// the response arrives (see `AppMsg::SpreadsheetPreviewReady`). `None` means
+/// either the response isn't binary, the binary type has no richer preview,
+/// or the preview hasn't finished parsing yet.
 #[derive(Default)]
 pub enum ResponsePreview {
     #[default]
     None,
     Spreadsheet(Result<crate::services::spreadsheet::ParsedSheet, String>),
-    Pdf(PdfPreviewState),
-}
-
-pub struct PdfPreviewState {
-    pub page_count: usize,
-    pub current_page: usize,
-    /// `None` while the current page is still rendering.
-    pub current_image: Option<iced::widget::image::Handle>,
 }
 
 /// One `test(name, condition)` call's outcome from a test script run.
@@ -113,8 +104,7 @@ pub struct RequestTabState {
     /// Byte offsets where each viewer page starts (first is always 0).
     /// More than one entry means the body is paged.
     pub viewer_page_starts: Vec<usize>,
-    /// Readable-text rendering of an HTML body for builds without the
-    /// `webview` feature (`None` with the feature on, or for non-HTML).
+    /// Readable-text rendering of an HTML body (`None` for non-HTML).
     /// Set alongside the viewer content; cleared on every new response.
     pub html_fallback_text: Option<String>,
     /// Currently shown page into `viewer_page_starts`.

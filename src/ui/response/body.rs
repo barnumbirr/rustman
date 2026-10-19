@@ -1,13 +1,13 @@
 use iced::{
     Alignment, Background, Border, Color, Element, Length,
-    widget::{Space, button, column, container, image, row, scrollable, text},
+    widget::{Space, button, column, container, row, scrollable, text},
 };
 
 use crate::{
     domain::response::HttpResponse,
     message::{Message, ResponseMsg},
     services::spreadsheet::ParsedSheet,
-    state::tabs::{PdfPreviewState, RequestTabState, ResponsePreview},
+    state::tabs::{RequestTabState, ResponsePreview},
     ui::{
         icons,
         theme::{MONO, Palette, TEXT_LG, TEXT_SM, TEXT_XS},
@@ -41,30 +41,17 @@ pub fn view(tab: &RequestTabState, spinner_frame: u32) -> Element<'_, Message> {
         return match &tab.response_preview {
             ResponsePreview::Spreadsheet(Ok(sheet)) => spreadsheet_view(sheet),
             ResponsePreview::Spreadsheet(Err(err)) => binary_view_with_note(resp, err),
-            ResponsePreview::Pdf(preview) => pdf_view(preview),
             ResponsePreview::None => binary_view(resp),
         };
     }
 
-    if resp.is_html() && !crate::services::webview::creation_failed() {
-        return html_view();
+    // HTML has no rendered preview: show the readable-text conversion, with
+    // the raw source still available via Save or Copy.
+    if resp.is_html()
+        && let Some(rendered) = tab.html_fallback_text.as_deref()
+    {
+        return simple_html_view(rendered, !resp.body_stored);
     }
-    // No native preview: either this build has no WebKit (readable-text
-    // fallback), or attach failed and gave up (raw source, as before).
-    if resp.is_html() {
-        if let Some(rendered) = tab.html_fallback_text.as_deref() {
-            return simple_html_view(rendered);
-        }
-    }
-    // Either not HTML, or it is but the embedded webview couldn't attach on
-    // this platform/configuration (e.g. no child-window support under
-    // native Wayland) — fall through to the plain text/source view below,
-    // with a banner explaining why (the underlying error used to go only to
-    // stderr, which a windowed build has no console for).
-    let webview_note: Option<String> = resp
-        .is_html()
-        .then(crate::services::webview::last_error)
-        .flatten();
 
     let page_count = tab.viewer_page_count();
     let size_note: Element<Message> = match tab.response_truncated_bytes {
@@ -122,6 +109,14 @@ pub fn view(tab: &RequestTabState, spinner_frame: u32) -> Element<'_, Message> {
         Space::new().into()
     };
 
+    // Truncated bodies can't be saved accurately, so the action only appears
+    // while the full body is in memory.
+    let save_action: Element<Message> = if resp.body_stored {
+        Space::new().width(0).into()
+    } else {
+        save_text_button()
+    };
+
     let toolbar = container(
         row![
             text(format!("{} lines", tab.response_viewer_lines))
@@ -130,6 +125,7 @@ pub fn view(tab: &RequestTabState, spinner_frame: u32) -> Element<'_, Message> {
             size_note,
             Space::new().width(Length::Fill),
             page_nav,
+            save_action,
             button(
                 row![
                     icons::copy().size(11).color(Palette::text_muted()),
@@ -179,70 +175,31 @@ pub fn view(tab: &RequestTabState, spinner_frame: u32) -> Element<'_, Message> {
         .width(Length::Fill)
         .height(Length::Fill);
 
-    let mut panel = column![].spacing(0).height(Length::Fill);
-    if let Some(note) = webview_note {
-        panel = panel.push(preview_unavailable_banner(&note));
-    }
+    let panel = column![].spacing(0).height(Length::Fill);
     panel.push(toolbar).push(body).into()
 }
 
-/// Shown above the raw-source fallback when the embedded HTML preview could not
-/// be created, so the user knows the source view is a fallback and why.
-fn preview_unavailable_banner(reason: &str) -> Element<'static, Message> {
+/// Readable-text HTML rendering. Borrows the pre-rendered fallback (computed
+/// once per response, not per frame). The raw source stays one Open or Save
+/// away, both of which need the complete body.
+fn simple_html_view<'a>(rendered: &'a str, full_body: bool) -> Element<'a, Message> {
+    let (open_action, save_action): (Element<Message>, Element<Message>) = if full_body {
+        (open_in_browser_button(), save_text_button())
+    } else {
+        (Space::new().width(0).into(), Space::new().width(0).into())
+    };
+
     container(
         column![
-            text("HTML preview unavailable — showing source")
-                .size(TEXT_SM)
-                .color(Palette::WARNING),
-            text(reason.to_owned())
-                .size(TEXT_XS)
-                .color(Palette::text_subtle()),
-        ]
-        .spacing(2),
-    )
-    .padding([6, 12])
-    .width(Length::Fill)
-    .style(|_| container::Style {
-        background: Some(Background::Color(Palette::warning_soft())),
-        border: Border {
-            color: Palette::WARNING,
-            width: 1.0,
-            radius: 6.0.into(),
-        },
-        ..Default::default()
-    })
-    .into()
-}
-
-/// Id of the placeholder container reserving screen space for the embedded
-/// HTML-preview webview (see `services::webview` and `AppMsg::HtmlPreviewTick`).
-/// The container itself renders nothing visible — the native webview is
-/// positioned to exactly cover it from outside Iced's own rendering.
-pub const HTML_PANEL_ID: iced::widget::Id = iced::widget::Id::new("response-html-panel");
-
-fn html_view() -> Element<'static, Message> {
-    container(
-        text("Loading preview…")
-            .size(TEXT_SM)
-            .color(Palette::text_subtle()),
-    )
-    .id(HTML_PANEL_ID)
-    .width(Length::Fill)
-    .height(Length::Fill)
-    .center_x(Length::Fill)
-    .center_y(Length::Fill)
-    .into()
-}
-
-/// Readable-text HTML rendering for builds without the `webview` feature.
-/// Borrows the pre-rendered fallback (computed once per response, not per
-/// frame). The full source stays one copy away via the Copy button.
-fn simple_html_view<'a>(rendered: &'a str) -> Element<'a, Message> {
-    container(
-        column![
-            text("No WebKit in this build — showing page text. Copy the response for full source.")
-                .size(TEXT_XS)
-                .color(Palette::text_subtle()),
+            row![
+                text("HTML shown as readable text. Open or save the response for the full source.")
+                    .size(TEXT_XS)
+                    .color(Palette::text_subtle()),
+                Space::new().width(Length::Fill),
+                open_action,
+                save_action,
+            ]
+            .align_y(Alignment::Center),
             scrollable(text(rendered).size(TEXT_SM).color(Palette::text())).height(Length::Fill),
         ]
         .spacing(4)
@@ -252,6 +209,46 @@ fn simple_html_view<'a>(rendered: &'a str) -> Element<'a, Message> {
     .width(Length::Fill)
     .height(Length::Fill)
     .into()
+}
+
+/// Compact "Save" action matching the toolbar's Copy button. Writes the
+/// response body — HTML source, JSON, text — to a file chosen by the user.
+fn save_text_button() -> Element<'static, Message> {
+    text_action_button("Save", Message::Response(ResponseMsg::SaveBody))
+}
+
+/// Renders the HTML body in the system browser via a temp file, so a page
+/// gets a real engine and real CSS/scripts without one being linked into the
+/// app.
+fn open_in_browser_button() -> Element<'static, Message> {
+    text_action_button(
+        "Open in browser",
+        Message::Response(ResponseMsg::OpenBodyInBrowser),
+    )
+}
+
+/// Compact text action matching the toolbar's Copy button style.
+fn text_action_button(label: &'static str, msg: Message) -> Element<'static, Message> {
+    button(text(label).size(TEXT_SM).color(Palette::text_muted()))
+        .on_press(msg)
+        .style(|_t, status| {
+            let hovered = matches!(status, iced::widget::button::Status::Hovered);
+            iced::widget::button::Style {
+                background: if hovered {
+                    Some(Background::Color(Palette::hover()))
+                } else {
+                    None
+                },
+                text_color: Palette::text_muted(),
+                border: Border {
+                    radius: 6.0.into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            }
+        })
+        .padding([4, 8])
+        .into()
 }
 
 /// Formats a byte count as a short human-readable size.
@@ -353,9 +350,17 @@ fn error_view(err: &str) -> Element<'static, Message> {
 }
 
 fn binary_view(resp: &HttpResponse) -> Element<'static, Message> {
+    let is_pdf = resp.headers.iter().any(|(name, value)| {
+        name.eq_ignore_ascii_case("content-type")
+            && value.to_ascii_lowercase().contains("pdf")
+    });
     binary_view_with_note(
         resp,
-        "This response isn't valid text, so it can't be shown in the editor.",
+        if is_pdf {
+            "PDFs aren't rendered in the app — save the response and open it in your PDF viewer."
+        } else {
+            "This response isn't valid text, so it can't be shown in the editor. Save it to open it with the right app."
+        },
     )
 }
 
@@ -375,7 +380,7 @@ fn binary_view_with_note(resp: &HttpResponse, note: &str) -> Element<'static, Me
         format!("{:.1} MB", resp.body_size as f64 / (1024.0 * 1024.0))
     };
 
-    let content = column![
+    let mut content = column![
         text("Binary response")
             .size(TEXT_LG)
             .color(Palette::text())
@@ -390,6 +395,35 @@ fn binary_view_with_note(resp: &HttpResponse, note: &str) -> Element<'static, Me
             .color(Palette::text_subtle()),
     ]
     .align_x(Alignment::Center);
+
+    // Binary bodies (PDFs included) have no inline renderer: offer to save
+    // the bytes so they can be opened externally. Only offered while the
+    // full body is still in memory; oversized downloads are dropped and the
+    // note above says so.
+    if resp.binary_data.is_some() {
+        content = content.push(Space::new().height(14)).push(
+            button(text("Save response…").size(TEXT_SM).color(Palette::text()))
+                .on_press(Message::Response(ResponseMsg::SaveBody))
+                .style(|_t, status| {
+                    let hovered = matches!(status, iced::widget::button::Status::Hovered);
+                    iced::widget::button::Style {
+                        background: Some(Background::Color(if hovered {
+                            Palette::hover()
+                        } else {
+                            Palette::surface_high()
+                        })),
+                        text_color: Palette::text(),
+                        border: Border {
+                            color: Palette::border(),
+                            width: 1.0,
+                            radius: 6.0.into(),
+                        },
+                        ..Default::default()
+                    }
+                })
+                .padding([6, 14]),
+        );
+    }
 
     container(content)
         .padding([24, 24])
@@ -456,61 +490,6 @@ fn spreadsheet_view(sheet: &ParsedSheet) -> Element<'static, Message> {
     ]
     .height(Length::Fill)
     .into()
-}
-
-/// A rendered PDF page with Prev/Next page navigation.
-fn pdf_view(preview: &PdfPreviewState) -> Element<'static, Message> {
-    let prev =
-        button(text("< Prev").size(TEXT_SM))
-            .on_press_maybe((preview.current_page > 0).then(|| {
-                Message::Response(ResponseMsg::PdfPageRequested(preview.current_page - 1))
-            }))
-            .padding([4, 10]);
-    let next =
-        button(text("Next >").size(TEXT_SM))
-            .on_press_maybe((preview.current_page + 1 < preview.page_count).then(|| {
-                Message::Response(ResponseMsg::PdfPageRequested(preview.current_page + 1))
-            }))
-            .padding([4, 10]);
-
-    let toolbar = row![
-        prev,
-        text(format!(
-            "Page {} of {}",
-            preview.current_page + 1,
-            preview.page_count.max(1)
-        ))
-        .size(TEXT_SM)
-        .color(Palette::text_muted()),
-        next,
-    ]
-    .spacing(10)
-    .align_y(Alignment::Center)
-    .padding([6, 12]);
-
-    let page: Element<Message> = match &preview.current_image {
-        Some(handle) => scrollable(
-            container(image(handle.clone()))
-                .width(Length::Fill)
-                .center_x(Length::Fill)
-                .padding(12),
-        )
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .into(),
-        None => container(
-            text("Rendering…")
-                .size(TEXT_SM)
-                .color(Palette::text_subtle()),
-        )
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .center_x(Length::Fill)
-        .center_y(Length::Fill)
-        .into(),
-    };
-
-    column![toolbar, page].height(Length::Fill).into()
 }
 
 fn loading_view<'a>(spinner_frame: u32) -> Element<'a, Message> {

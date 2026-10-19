@@ -1,5 +1,7 @@
 use serde::Serialize as _;
 
+use crate::domain::response::HttpResponse;
+
 /// Longest char-boundary prefix of `text` within `max_bytes`. Slicing a `str`
 /// mid-character panics — fatal under this crate's `panic = "abort"` — so
 /// every display cap in the app floors through this instead of hand-rolled
@@ -29,18 +31,13 @@ pub fn pretty_value(value: &serde_json::Value, use_tabs: bool) -> Option<String>
     }
 }
 
-/// Best-effort readable text from an HTML body, for builds without the
-/// `webview` feature — tag soup is unreadable and no real preview exists, so
-/// this middle ground keeps something useful on screen.
+/// Best-effort readable text from an HTML body. Tag soup is unreadable and
+/// there is no embedded web engine, so this keeps something useful on screen.
 ///
 /// Single pass with no allocations beyond the output: `<script>`, `<style>`
 /// and comments are dropped; block tags break lines; links keep their target
 /// in parens; entities (named, decimal, hex) are decoded; runs of spaces
 /// collapse the way a browser would. Always whole chars — never slices.
-///
-/// Only called in builds without the `webview` feature (see
-/// `webview::html_fallback_for`); the allow keeps default builds quiet.
-#[cfg_attr(feature = "webview", allow(dead_code))]
 pub fn html_to_text(html: &str) -> String {
     let mut out = String::with_capacity(html.len().min(512_000));
     let mut chars = html.chars().peekable();
@@ -181,6 +178,30 @@ pub fn html_to_text(html: &str) -> String {
         }
     }
     collapsed.trim().to_owned()
+}
+
+/// Readable text for an HTML response body, capped at 1 MB of input.
+/// Returns `None` for non-HTML and empty bodies.
+///
+/// Conversion is linear and one-shot per response, but there is no point
+/// rendering megabytes of preview text — the full source stays one copy away.
+pub fn html_preview_text(resp: &HttpResponse) -> Option<String> {
+    if !resp.is_html() || resp.body.is_empty() {
+        return None;
+    }
+
+    const INPUT_CAP: usize = 1_000_000;
+    let capped = resp.body.len() > INPUT_CAP;
+    let slice_end = if capped {
+        head_capped(&resp.body, INPUT_CAP).len()
+    } else {
+        resp.body.len()
+    };
+    let mut text = html_to_text(&resp.body[..slice_end]);
+    if capped {
+        text.push_str("\n\n[…preview truncated at 1 MB — copy the response for the full source…]");
+    }
+    Some(text)
 }
 
 /// The `href` value from a tag's attribute text (`<a ...>` remainder),

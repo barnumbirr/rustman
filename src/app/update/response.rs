@@ -1,9 +1,8 @@
 use iced::{Task, clipboard};
 
 use crate::app::AppState;
-use crate::jobs::JobKind;
-use crate::message::{AppMsg, Message, ResponseMsg};
-use crate::state::tabs::ResponsePreview;
+use crate::domain::response::HttpResponse;
+use crate::message::{Message, ResponseMsg};
 
 pub(super) fn handle(state: &mut AppState, msg: ResponseMsg) -> Task<Message> {
     match msg {
@@ -35,6 +34,97 @@ pub(super) fn handle(state: &mut AppState, msg: ResponseMsg) -> Task<Message> {
             };
             state.status_message = Some("Copied!".to_owned());
             return clipboard::write::<Message>(body);
+        }
+        ResponseMsg::SaveBody => {
+            let tab = state.tabs.active_tab();
+            let Some(resp) = tab.response.as_ref() else {
+                return Task::none();
+            };
+            // Binary bodies keep their bytes separately; text bodies are
+            // their own bytes. Either way, only save when the full body is
+            // still in memory — oversized downloads are truncated or dropped
+            // and saving those would silently write partial data.
+            let data = if resp.is_binary {
+                resp.binary_data.clone()
+            } else if resp.body_stored {
+                None
+            } else {
+                Some(resp.body.as_bytes().to_vec())
+            };
+            let Some(bytes) = data else {
+                state.status_message = Some(
+                    "This response was too large to keep in memory, so it can't be saved here."
+                        .to_owned(),
+                );
+                return Task::none();
+            };
+            let file_name = suggested_file_name(resp);
+
+            return Task::perform(
+                async move {
+                    let file = rfd::AsyncFileDialog::new()
+                        .set_file_name(&file_name)
+                        .set_title("Save response body")
+                        .save_file()
+                        .await?;
+                    match tokio::fs::write(file.path(), &bytes).await {
+                        Ok(()) => Some(Ok(file.path().to_string_lossy().to_string())),
+                        Err(e) => Some(Err(e.to_string())),
+                    }
+                },
+                |result| match result {
+                    Some(Ok(path)) => Message::Response(ResponseMsg::BodySaved(Ok(path))),
+                    Some(Err(e)) => Message::Response(ResponseMsg::BodySaved(Err(e))),
+                    None => Message::App(crate::message::AppMsg::Noop),
+                },
+            );
+        }
+        ResponseMsg::BodySaved(Ok(path)) => {
+            state.status_message = Some(format!("Response saved to {path}"));
+        }
+        ResponseMsg::BodySaved(Err(e)) => {
+            state.status_message = Some(format!("Could not save response: {e}"));
+        }
+        ResponseMsg::OpenBodyInBrowser => {
+            let tab = state.tabs.active_tab();
+            let Some(resp) = tab.response.as_ref() else {
+                return Task::none();
+            };
+            if resp.is_binary || resp.body_stored {
+                state.status_message = Some(
+                    "Only complete text responses can be opened in the browser.".to_owned(),
+                );
+                return Task::none();
+            }
+            let html = resp.body.clone();
+            // Write to a temp file and hand it to the system opener. This
+            // gives a fully rendered page (CSS and scripts included, in the
+            // browser's own sandbox) without embedding a web engine; relative
+            // assets won't resolve, since the file has no original URL base.
+            return Task::perform(
+                async move {
+                    let path = std::env::temp_dir().join(format!(
+                        "rustman-preview-{}-{}.html",
+                        std::process::id(),
+                        std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_millis())
+                            .unwrap_or(0)
+                    ));
+                    tokio::fs::write(&path, html.as_bytes())
+                        .await
+                        .map_err(|e| e.to_string())?;
+                    open::that(&path).map_err(|e| e.to_string())?;
+                    Ok(())
+                },
+                |result| Message::Response(ResponseMsg::BodyOpened(result)),
+            );
+        }
+        ResponseMsg::BodyOpened(Ok(())) => {
+            state.status_message = Some("HTML opened in your browser".to_owned());
+        }
+        ResponseMsg::BodyOpened(Err(e)) => {
+            state.status_message = Some(format!("Could not open browser: {e}"));
         }
         ResponseMsg::ViewerEdited(msg) => {
             // Keep mouse selection, navigation, scrolling, and Copy working,
@@ -79,42 +169,77 @@ pub(super) fn handle(state: &mut AppState, msg: ResponseMsg) -> Task<Message> {
             let tab = state.tabs.active_tab_mut();
             tab.console_editor.perform(action);
         }
-        ResponseMsg::PdfPageRequested(page_index) => {
-            let tab = state.tabs.active_tab_mut();
-            let ResponsePreview::Pdf(preview) = &tab.response_preview else {
-                return Task::none();
-            };
-            let page_count = preview.page_count;
-            if page_index >= page_count {
-                return Task::none();
-            }
-            let Some(bytes) = tab.response.as_ref().and_then(|r| r.binary_data.clone()) else {
-                return Task::none();
-            };
-            let tab_id = tab.id.clone();
-            let (generation, cancel) = tab.jobs.start(JobKind::Parse);
-            return Task::perform(
-                async move {
-                    tokio::select! {
-                        biased;
-                        _ = cancel.cancelled() => AppMsg::Noop,
-                        rendered = tokio::task::spawn_blocking(move || {
-                            crate::services::pdf::render_page(&bytes, page_index, 700)
-                        }) => match rendered {
-                            Ok(page) => AppMsg::PdfPagePreviewReady {
-                                generation,
-                                tab_id,
-                                page_index,
-                                page_count,
-                                result: page.map(|p| (p.width, p.height, p.rgba)),
-                            },
-                            Err(_) => AppMsg::Noop,
-                        },
-                    }
-                },
-                Message::App,
-            );
-        }
     }
     Task::none()
+}
+
+/// Best-effort default filename for saving a binary response. Prefers the
+/// server's `Content-Disposition` filename, then picks an extension from the
+/// content type, so a PDF saves as `response.pdf` rather than `response.bin`.
+fn suggested_file_name(resp: &HttpResponse) -> String {
+    if let Some(disposition) = header(resp, "content-disposition")
+        && let Some(name) = filename_from_disposition(disposition)
+    {
+        return name;
+    }
+
+    let content_type = header(resp, "content-type").unwrap_or_default();
+    format!("response.{}", extension_for_content_type(content_type))
+}
+
+fn header<'a>(resp: &'a HttpResponse, name: &str) -> Option<&'a str> {
+    resp.headers
+        .iter()
+        .find(|(key, _)| key.eq_ignore_ascii_case(name))
+        .map(|(_, value)| value.as_str())
+}
+
+fn filename_from_disposition(value: &str) -> Option<String> {
+    let lower = value.to_ascii_lowercase();
+    let start = lower.find("filename=")? + "filename=".len();
+    let rest = value.get(start..)?.trim_start();
+    let name = if let Some(quoted) = rest.strip_prefix('"') {
+        quoted.split('"').next().unwrap_or(quoted)
+    } else {
+        rest.split(';').next().unwrap_or(rest).trim()
+    };
+    sanitize_file_name(name)
+}
+
+/// Keep just the final path component and drop control characters, so a
+/// malicious header can't steer the save dialog out of the chosen folder.
+fn sanitize_file_name(name: &str) -> Option<String> {
+    let base = name.rsplit(['/', '\\']).next().unwrap_or(name);
+    let cleaned: String = base.chars().filter(|c| !c.is_control()).collect();
+    let cleaned = cleaned.trim();
+    (!cleaned.is_empty()).then(|| cleaned.to_owned())
+}
+
+fn extension_for_content_type(content_type: &str) -> &'static str {
+    let content_type = content_type.to_ascii_lowercase();
+    if content_type.contains("pdf") {
+        "pdf"
+    } else if content_type.contains("zip") {
+        "zip"
+    } else if content_type.contains("png") {
+        "png"
+    } else if content_type.contains("jpeg") || content_type.contains("jpg") {
+        "jpg"
+    } else if content_type.contains("gif") {
+        "gif"
+    } else if content_type.contains("webp") {
+        "webp"
+    } else if content_type.contains("svg") {
+        "svg"
+    } else if content_type.contains("json") {
+        "json"
+    } else if content_type.contains("html") {
+        "html"
+    } else if content_type.contains("xml") {
+        "xml"
+    } else if content_type.contains("text") {
+        "txt"
+    } else {
+        "bin"
+    }
 }

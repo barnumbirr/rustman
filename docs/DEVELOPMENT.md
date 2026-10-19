@@ -133,7 +133,7 @@ Roughly in order of how much it matters to users. The user facing version of thi
 
 A saved flow is a named chain of requests that runs start to finish, carrying values out of one response and into the next. Nothing exists for this yet. It needs a `Flow` domain type (an ordered list of request ids plus the extract-and-bind steps between them), storage for it next to collections, a runner that reuses the existing `http::send` path per step so scripts and auth keep working, and a panel to build and watch a run. The extraction step overlaps with what test scripts already do, so `set_env` between steps is the cheap first version and a real per-flow variable scope is the proper one.
 
-Browser capture is the harder half: open a browser from the app, record what it fires, and write it into a flow. `wry` is already a dependency for the HTML response preview, so a webview exists, but capturing requests from it is a separate problem from displaying a page and needs a proxy or CDP-style hook. Unstarted and unscoped.
+Browser capture is the harder half: open a browser from the app, record what it fires, and write it into a flow. Rustman has no embedded webview (HTML responses are converted to readable text), so capture would need an external browser plus a proxy or CDP-style hook. Unstarted and unscoped.
 
 ### 2. Finish the git story
 

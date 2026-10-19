@@ -8,19 +8,51 @@
 const LATEST_RELEASE_API: &str =
     "https://api.github.com/repos/rust-man-org/rustman/releases/latest";
 
-/// Substring matched against the release asset names for the running platform.
-#[cfg(target_os = "macos")]
-const ASSET_TARGET: &str = "macos-universal";
-#[cfg(target_os = "linux")]
-const ASSET_TARGET: &str = "linux-x86_64";
-#[cfg(target_os = "windows")]
-const ASSET_TARGET: &str = "windows-x86_64";
+/// Asset token matched against the release asset names for the running
+/// platform and CPU architecture.
+///
+/// Returns an error on platforms or architectures the release pipeline does
+/// not build for. A hardcoded per-OS token used to mean an arm64 Linux user
+/// checking for updates would be offered — and then install — the x86_64
+/// binary.
+fn asset_target() -> Result<&'static str, String> {
+    #[cfg(target_os = "macos")]
+    {
+        // Universal binary: one artefact covers both Intel and Apple Silicon.
+        Ok("macos-universal")
+    }
+    #[cfg(target_os = "linux")]
+    {
+        match std::env::consts::ARCH {
+            "x86_64" => Ok("linux-x86_64"),
+            "aarch64" => Ok("linux-aarch64"),
+            other => Err(format!(
+                "no Linux release builds for the '{other}' architecture — build from source instead"
+            )),
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        match std::env::consts::ARCH {
+            "x86_64" => Ok("windows-x86_64"),
+            "aarch64" => Ok("windows-aarch64"),
+            other => Err(format!(
+                "no Windows release builds for the '{other}' architecture — build from source instead"
+            )),
+        }
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+    {
+        Err("self-update is not supported on this platform".to_owned())
+    }
+}
 
 /// Extension the self-update asset must end with. The macOS release uploads
-/// *two* assets whose names both contain `ASSET_TARGET` — the installer DMG
-/// and the tarball this self-updater actually wants — so the substring match
-/// alone isn't enough; without this, picking the `.dmg` by accident feeds a
-/// disk image into the gzip decoder and fails with "invalid Gzip header".
+/// *two* assets whose names both contain the platform token — the installer
+/// DMG and the tarball this self-updater actually wants — so the substring
+/// match alone isn't enough; without this, picking the `.dmg` by accident
+/// feeds a disk image into the gzip decoder and fails with "invalid Gzip
+/// header".
 #[cfg(not(target_os = "windows"))]
 const ASSET_EXTENSION: &str = ".tar.gz";
 #[cfg(target_os = "windows")]
@@ -91,7 +123,12 @@ async fn fetch_latest() -> Result<GhRelease, String> {
 
 /// Query the latest release; returns `Some` only when it is newer than the
 /// running build.
+///
+/// Fails on architectures with no published release artefact, so the UI can
+/// say why there is no updater rather than offering an update that could
+/// never be installed.
 pub async fn check() -> Result<Option<UpdateInfo>, String> {
+    asset_target()?;
     let release = fetch_latest().await?;
     let latest = release.tag_name.trim_start_matches('v').to_owned();
     let current = current_version();
@@ -113,14 +150,23 @@ fn pick_asset<'a>(
 ) -> Result<&'a GhAsset, String> {
     assets
         .iter()
-        .find(|a| a.name.contains(target) && a.name.ends_with(extension))
+        .find(|a| {
+            // Older releases carried a second Linux tarball built with
+            // `--no-default-features`; its name also contained the
+            // `linux-x86_64` token. Never let an update install that variant
+            // when the standard build is present.
+            !a.name.contains("nokit")
+                && a.name.contains(target)
+                && a.name.ends_with(extension)
+        })
         .ok_or_else(|| format!("release {release} has no '{target}*{extension}' asset"))
 }
 
 pub async fn install() -> Result<String, String> {
     let release = fetch_latest().await?;
     let latest = release.tag_name.trim_start_matches('v').to_owned();
-    let asset = pick_asset(&release.assets, &latest, ASSET_TARGET, ASSET_EXTENSION)?;
+    let target = asset_target()?;
+    let asset = pick_asset(&release.assets, &latest, target, ASSET_EXTENSION)?;
     let bytes = client()?
         .get(&asset.browser_download_url)
         .send()
@@ -358,6 +404,34 @@ mod tests {
             err.contains("v1.2.3"),
             "error should name the release: {err}"
         );
+    }
+
+    #[test]
+    fn never_picks_a_nokit_asset() {
+        // The old no-WebKit build uploaded a second Linux tarball whose name
+        // also contained `linux-x86_64`; an update must install the standard
+        // build, not that variant, when both are present on an older release.
+        let assets = vec![
+            asset("rustman-linux-x86_64-nokit.tar.gz"),
+            asset("rustman-linux-x86_64.tar.gz"),
+        ];
+        let picked = pick_asset(&assets, "v1.2.3", "linux-x86_64", ".tar.gz")
+            .expect("should find the standard tarball");
+        assert_eq!(picked.name, "rustman-linux-x86_64.tar.gz");
+    }
+
+    #[test]
+    fn asset_target_matches_the_running_platform() {
+        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+        assert_eq!(asset_target().unwrap(), "linux-x86_64");
+        #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+        assert_eq!(asset_target().unwrap(), "linux-aarch64");
+        #[cfg(target_os = "macos")]
+        assert_eq!(asset_target().unwrap(), "macos-universal");
+        #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+        assert_eq!(asset_target().unwrap(), "windows-x86_64");
+        #[cfg(all(target_os = "windows", target_arch = "aarch64"))]
+        assert_eq!(asset_target().unwrap(), "windows-aarch64");
     }
 
     #[test]

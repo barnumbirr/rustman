@@ -44,8 +44,6 @@ pub(crate) fn marks_session_dirty(message: &Message) -> bool {
             crate::message::AppMsg::AutoSaveSession
                 | crate::message::AppMsg::Noop
                 | crate::message::AppMsg::SpinnerTick
-                | crate::message::AppMsg::HtmlPreviewTick
-                | crate::message::AppMsg::HtmlPanelBounds { .. }
         )
         // Expanded editors are transient UI: paging or expanding never
         // touches the persisted snapshot. A rejected oversized paste changes
@@ -60,6 +58,15 @@ pub(crate) fn marks_session_dirty(message: &Message) -> bool {
                 | crate::message::RequestMsg::CloseImportDialog
                 | crate::message::RequestMsg::ImportFromClipboard
                 | crate::message::RequestMsg::ImportFromFile
+        )
+        // Saving or opening a response body only writes a file and a
+        // transient status line; nothing in the persisted session snapshot
+        // changes.
+        | Message::Response(
+            crate::message::ResponseMsg::SaveBody
+                | crate::message::ResponseMsg::BodySaved(_)
+                | crate::message::ResponseMsg::OpenBodyInBrowser
+                | crate::message::ResponseMsg::BodyOpened(_)
         )
     )
 }

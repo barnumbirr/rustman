@@ -9,9 +9,9 @@ use crate::services::storage;
 
 /// Largest binary response, in bytes, we will try to render a rich preview for.
 ///
-/// The PDF and spreadsheet paths both decode the entire document in one go, so
-/// an oversized download would tie up a blocking worker and can exhaust memory.
-/// Past this the UI shows the plain "too large to preview" note instead.
+/// The spreadsheet path decodes the entire document in one go, so an oversized
+/// download would tie up a blocking worker and can exhaust memory. Past this
+/// the UI shows the plain "too large to preview" note instead.
 const PREVIEW_BYTE_LIMIT: usize = 32 * 1024 * 1024;
 
 pub(super) fn handle(state: &mut AppState, msg: AppMsg) -> Task<Message> {
@@ -135,18 +135,19 @@ pub(super) fn handle(state: &mut AppState, msg: AppMsg) -> Task<Message> {
                         t.response_preview = crate::state::tabs::ResponsePreview::None;
                         t.viewer_processing = false;
                     }
-                    let kind = result.response.binary_preview_kind();
-                    // `Other` has no richer preview, so decide that before
-                    // cloning the raw bytes — an image or archive download used
-                    // to copy its whole payload here only to reach the
-                    // `Other => Task::none()` arm below and drop it again.
-                    if matches!(kind, crate::domain::response::BinaryPreviewKind::Other) {
+                    // Only spreadsheets have a rich preview now. Decide that
+                    // before cloning the raw bytes — an image, PDF or archive
+                    // download used to copy its whole payload here only to drop
+                    // it again.
+                    if !matches!(
+                        result.response.binary_preview_kind(),
+                        crate::domain::response::BinaryPreviewKind::Spreadsheet
+                    ) {
                         return Task::none();
                     }
-                    // Rendering a preview must not be attempted for payloads
-                    // large enough to stall or exhaust memory: pdfium and the
-                    // spreadsheet parser both decode the whole document, and a
-                    // huge download would freeze the UI thread's job pool.
+                    // Parsing a spreadsheet decodes the whole document, so do
+                    // not attempt it for payloads large enough to stall or
+                    // exhaust memory.
                     if result.response.body_size > PREVIEW_BYTE_LIMIT {
                         return Task::none();
                     }
@@ -160,58 +161,25 @@ pub(super) fn handle(state: &mut AppState, msg: AppMsg) -> Task<Message> {
                             None => return Task::none(),
                         }
                     };
-                    match kind {
-                        crate::domain::response::BinaryPreviewKind::Spreadsheet => {
-                            return Task::perform(
-                                async move {
-                                    tokio::select! {
-                                        biased;
-                                        _ = cancel.cancelled() => AppMsg::Noop,
-                                        parsed = tokio::task::spawn_blocking(move || {
-                                            crate::services::spreadsheet::parse_first_sheet(&bytes)
-                                        }) => match parsed {
-                                            Ok(result) => AppMsg::SpreadsheetPreviewReady {
-                                                generation,
-                                                tab_id,
-                                                result,
-                                            },
-                                            Err(_) => AppMsg::Noop,
-                                        },
-                                    }
+                    return Task::perform(
+                        async move {
+                            tokio::select! {
+                                biased;
+                                _ = cancel.cancelled() => AppMsg::Noop,
+                                parsed = tokio::task::spawn_blocking(move || {
+                                    crate::services::spreadsheet::parse_first_sheet(&bytes)
+                                }) => match parsed {
+                                    Ok(result) => AppMsg::SpreadsheetPreviewReady {
+                                        generation,
+                                        tab_id,
+                                        result,
+                                    },
+                                    Err(_) => AppMsg::Noop,
                                 },
-                                Message::App,
-                            );
-                        }
-                        crate::domain::response::BinaryPreviewKind::Pdf => {
-                            return Task::perform(
-                                async move {
-                                    tokio::select! {
-                                        biased;
-                                        _ = cancel.cancelled() => AppMsg::Noop,
-                                        rendered = tokio::task::spawn_blocking(move || {
-                                            let page_count =
-                                                crate::services::pdf::page_count(&bytes).unwrap_or(0);
-                                            let page = crate::services::pdf::render_page(&bytes, 0, 700);
-                                            (page_count, page)
-                                        }) => match rendered {
-                                            Ok((page_count, page)) => AppMsg::PdfPagePreviewReady {
-                                                generation,
-                                                tab_id,
-                                                page_index: 0,
-                                                page_count,
-                                                result: page.map(|p| (p.width, p.height, p.rgba)),
-                                            },
-                                            Err(_) => AppMsg::Noop,
-                                        },
-                                    }
-                                },
-                                Message::App,
-                            );
-                        }
-                        crate::domain::response::BinaryPreviewKind::Other => {
-                            return Task::none();
-                        }
-                    }
+                            }
+                        },
+                        Message::App,
+                    );
                 }
 
                 if state.parsed_cache.inner_get_by_hash(body_hash).is_some() {
@@ -235,7 +203,7 @@ pub(super) fn handle(state: &mut AppState, msg: AppMsg) -> Task<Message> {
                         t.html_fallback_text = t
                             .response
                             .as_ref()
-                            .and_then(crate::services::webview::html_fallback_for);
+                            .and_then(crate::services::format::html_preview_text);
                         t.viewer_processing = false;
                         t.jobs.cancel(JobKind::Parse);
                     }
@@ -302,7 +270,7 @@ pub(super) fn handle(state: &mut AppState, msg: AppMsg) -> Task<Message> {
                     tab.html_fallback_text = tab
                         .response
                         .as_ref()
-                        .and_then(crate::services::webview::html_fallback_for);
+                        .and_then(crate::services::format::html_preview_text);
                     tab.viewer_processing = false;
                 }
             }
@@ -317,76 +285,6 @@ pub(super) fn handle(state: &mut AppState, msg: AppMsg) -> Task<Message> {
             {
                 tab.response_preview = crate::state::tabs::ResponsePreview::Spreadsheet(result);
             }
-        }
-        AppMsg::PdfPagePreviewReady {
-            generation,
-            tab_id,
-            page_index,
-            page_count,
-            result,
-        } => {
-            if let Some(tab) = state.tabs.tabs.iter_mut().find(|t| t.id == tab_id)
-                && tab.jobs.is_current(JobKind::Parse, generation)
-            {
-                let current_image = match result {
-                    Ok((width, height, rgba)) => {
-                        Some(iced::widget::image::Handle::from_rgba(width, height, rgba))
-                    }
-                    Err(_) => None,
-                };
-                tab.response_preview =
-                    crate::state::tabs::ResponsePreview::Pdf(crate::state::tabs::PdfPreviewState {
-                        page_count,
-                        current_page: page_index,
-                        current_image,
-                    });
-            }
-        }
-        AppMsg::HtmlPreviewTick => {
-            let tab = state.tabs.active_tab();
-            let is_html_now = tab.active_response_tab == crate::message::ResponseTab::Body
-                && tab.response.as_ref().is_some_and(|r| r.is_html());
-
-            if !is_html_now {
-                crate::services::webview::set_visible(false);
-                return Task::none();
-            }
-
-            // The body is shared, not copied: this runs on a repeating timer,
-            // so cloning a multi-megabyte HTML string here (twice — once for
-            // the message, once inside the `map` closure) burned real time and
-            // allocator pressure on every tick.
-            let html: std::sync::Arc<str> = tab
-                .response
-                .as_ref()
-                .map(|r| std::sync::Arc::from(r.body.as_str()))
-                .unwrap_or_else(|| std::sync::Arc::from(""));
-            let ui_scale = state.ui_scale;
-            return crate::ui::widgets::bounds_probe::find(
-                crate::ui::response::body::HTML_PANEL_ID,
-            )
-            .map(move |bounds| {
-                Message::App(AppMsg::HtmlPanelBounds {
-                    // iced reports bounds in its own scaled space; `wry`
-                    // expects window-logical pixels. Convert here so the
-                    // native child window lands in the right place at any
-                    // UI zoom (this is what broke HTML preview on scaled
-                    // Windows displays).
-                    bounds: crate::services::webview::scaled_bounds(bounds, ui_scale),
-                    html: html.clone(),
-                })
-            });
-        }
-        AppMsg::HtmlPanelBounds { bounds, html } => {
-            if crate::services::webview::exists() {
-                crate::services::webview::set_bounds(bounds);
-                crate::services::webview::set_visible(true);
-                crate::services::webview::load_html_if_changed(&html);
-                return Task::none();
-            }
-            return iced::window::latest().and_then(move |id| {
-                crate::services::webview::ensure_created(id, bounds, html.to_string())
-            });
         }
         AppMsg::Formatted {
             generation,

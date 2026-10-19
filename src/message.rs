@@ -228,8 +228,15 @@ pub enum RequestTab {
 pub enum ResponseMsg {
     TabSelected(ResponseTab),
     CopyBody,
+    /// Save the raw bytes of the current binary response to a file.
+    SaveBody,
+    /// Result of `SaveBody`; `Ok` carries the written path.
+    BodySaved(Result<String, String>),
+    /// Render the current HTML response in the system browser.
+    OpenBodyInBrowser,
+    /// Result of `OpenBodyInBrowser`.
+    BodyOpened(Result<(), String>),
     ViewerEdited(iced_code_editor::Message),
-    PdfPageRequested(usize),
     ConsoleEdited(iced::widget::text_editor::Action),
     /// Step the response viewer one page (see `page_starts` in state/tabs).
     ViewerPagePrev,
@@ -405,21 +412,6 @@ pub enum AppMsg {
         generation: u64,
         tab_id: String,
         result: Result<crate::services::spreadsheet::ParsedSheet, String>,
-    },
-
-    HtmlPreviewTick,
-    /// `html` is shared rather than owned: this message is produced on a
-    /// repeating timer, and copying a large HTML body every tick was pure waste.
-    HtmlPanelBounds {
-        bounds: iced::Rectangle,
-        html: std::sync::Arc<str>,
-    },
-    PdfPagePreviewReady {
-        generation: u64,
-        tab_id: String,
-        page_index: usize,
-        page_count: usize,
-        result: Result<(u32, u32, Vec<u8>), String>,
     },
 
     FocusNextField,

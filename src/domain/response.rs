@@ -13,7 +13,7 @@ pub struct HttpResponse {
     #[serde(default)]
     pub is_binary: bool,
     /// Raw bytes of a binary response, kept only for the live response so the
-    /// UI can render a PDF/spreadsheet preview. Never persisted (history and
+    /// UI can render a spreadsheet preview. Never persisted (history and
     /// collections would otherwise balloon with embedded binary blobs) —
     /// reloading a past response from history just falls back to the plain
     /// "Binary response" message instead of a rendered preview.
@@ -26,7 +26,6 @@ pub struct HttpResponse {
 /// What kind of rich preview (if any) a binary response's content-type calls for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BinaryPreviewKind {
-    Pdf,
     Spreadsheet,
     /// A recognised binary type without a richer preview (image, zip, etc.) —
     /// falls back to the plain "Binary response" message.
@@ -44,9 +43,7 @@ impl HttpResponse {
             .map(|(_, value)| value.to_ascii_lowercase())
             .unwrap_or_default();
 
-        if content_type.contains("pdf") {
-            BinaryPreviewKind::Pdf
-        } else if content_type.contains("spreadsheet")
+        if content_type.contains("spreadsheet")
             || content_type.contains("ms-excel")
             || content_type.contains("opendocument.spreadsheet")
         {
