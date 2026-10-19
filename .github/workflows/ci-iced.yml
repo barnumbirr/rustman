@@ -5,12 +5,16 @@ on:
     branches: [master]
     paths:
       - "src/**"
+      - "tests/**"
+      - "build.rs"
       - "Cargo.toml"
       - "Cargo.lock"
       - ".github/workflows/ci-iced.yml"
   pull_request:
     paths:
       - "src/**"
+      - "tests/**"
+      - "build.rs"
       - "Cargo.toml"
       - "Cargo.lock"
       - ".github/workflows/ci-iced.yml"

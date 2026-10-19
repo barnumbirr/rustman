@@ -48,7 +48,7 @@ This is not a startup and I am not trying to sell you anything. It is a tool I w
 - **Pure native GUI.** Built with [iced](https://github.com/iced-rs/iced). No webview, no Electron, no JavaScript runtime.
 - **Native Rust HTTP engine.** Requests go through reqwest, so no browser CORS limits and no response size caps.
 - **WebSocket.** Type a ws:// or wss:// URL and the whole panel flips into WebSocket mode. Connect, then send and receive in real time on a live feed.
-- **Code editor for body and response.** A syntax highlighted, line numbered editor (the vendored iced-code-editor backed by syntect) for the request body and the response, with full text selection.
+- **Code editor for body and response.** A syntax highlighted, line numbered editor (the rust-man-org fork of iced-code-editor, backed by syntect) for the request body and the response, with full text selection.
 - **File upload.** multipart/form-data with a real file picker. The file's bytes go to the server with a Content-Type guessed from the extension.
 - **All common auth types.** Bearer, Basic, API Key (header or query), Cookie, and JWT (HS256).
 - **Scripting.** Pre-request and test scripts run on a custom Rust scripting language — see below.
@@ -67,7 +67,7 @@ This is not a startup and I am not trying to sell you anything. It is a tool I w
 
 ![Rustman Scripting](docs/rustman-scripting.png)
 
-Pre-request and test scripts run on **rustman-engine**, a small scripting language built from scratch in Rust for this app — not JavaScript, no `pm.*` API, no embedded runtime. A test script's assertions land in a **Tests** tab with a selectable, copyable **Console** for anything you `print(...)`. A **Global Scripts** pair (Settings panel) runs before every request's own script and can be overridden by it, so common setup doesn't need copy-pasting into every request.
+Pre-request and test scripts run on [**rustman-engine**](https://github.com/rust-man-org/rustman-engine), a small scripting language built from scratch in Rust for this app — not JavaScript, no `pm.*` API, no embedded runtime. A test script's assertions land in a **Tests** tab with a selectable, copyable **Console** for anything you `print(...)`. A **Global Scripts** pair (Settings panel) runs before every request's own script and can be overridden by it, so common setup doesn't need copy-pasting into every request.
 
 You get `env`/`set_env`, `header`/`headers`/`set_header`, `cookie`, `body`/`set_body`, `url`, `test`, `print`, `contains`, base64, `jwt_decode`, `json_parse`/`json_stringify`, and AES-256-GCM. `contains` covers the keyword checks you actually reach for:
 
@@ -107,9 +107,13 @@ responses render as readable text instead.
 
 You will need a few things first.
 
-- A recent [Rust toolchain](https://www.rust-lang.org/tools/install), 1.85 or newer. Rustman is edition 2024, as is the vendored iced-code-editor widget, so older toolchains will not build it. The latest stable Rust works fine.
+- A recent [Rust toolchain](https://www.rust-lang.org/tools/install), 1.85 or newer. Rustman is edition 2024, as is the iced-code-editor fork it builds against, so older toolchains will not build it. The latest stable Rust works fine.
 - A C toolchain and CMake. git2 builds with vendored-libgit2 and vendored-openssl, so libgit2 and OpenSSL compile from source, and rusqlite bundles SQLite. You need a C compiler and cmake on the machine.
 - A few system libraries on Linux, listed below.
+
+Two dependencies (the scripting engine and the editor fork) come from
+`rust-man-org` repos on GitHub and are fetched by cargo automatically —
+there is nothing extra to clone.
 
 ```sh
 git clone https://github.com/rust-man-org/rustman
@@ -153,9 +157,9 @@ cargo run
 - **WebSocket.** tokio-tungstenite.
 - **Storage.** rusqlite (bundled SQLite), the source of truth.
 - **Collection version control.** git2 (vendored libgit2 and OpenSSL) for local commits, plus your system git for remotes.
-- **Code editor and highlighting.** The vendored [iced-code-editor](https://github.com/LuDog71FR/iced-code-editor) widget backed by syntect.
+- **Code editor and highlighting.** Rustman's fork of [iced-code-editor-rustman](https://github.com/rust-man-org/iced-code-editor-rustman) (upstream by LuDog71), pinned to a tag and backed by syntect.
 - **Self update.** self-replace.
-- **Scripting.** [rustman-engine](vendor/rustman-engine), a small custom scripting language (own vendored crate, not JS/QuickJS) for pre-request/test scripts.
+- **Scripting.** [rustman-engine](https://github.com/rust-man-org/rustman-engine), a small custom scripting language (own crate, not JS/QuickJS) for pre-request/test scripts.
 
 ## Documentation
 
@@ -165,10 +169,10 @@ cargo run
 
 ## Thanks
 
-Rustman vendors two things under `vendor/`, so a copy of the source lives right in this repo instead of pulling from crates.io.
+Two things Rustman relies on live in their own small repos under [rust-man-org](https://github.com/rust-man-org), pinned by tag and fetched by cargo automatically.
 
-- **[iced-code-editor](https://github.com/LuDog71FR/iced-code-editor)** by **LuDog71** is the syntax highlighted, line numbered editor behind the request body and the response viewer. It lives in [`vendor/iced-code-editor`](vendor/iced-code-editor) and it is MIT licensed, patched locally so it can be pinned and tweaked without waiting on a release. Thank you for building it.
-- **[rustman-engine](vendor/rustman-engine)** is the scripting language behind pre-request/test scripts — not a third-party crate, this one's written for Rustman itself and lives here because it isn't published to crates.io.
+- **[iced-code-editor](https://github.com/LuDog71FR/iced-code-editor)** by **LuDog71** is the syntax highlighted, line numbered editor behind the request body and the response viewer. Rustman uses its own [iced-code-editor-rustman](https://github.com/rust-man-org/iced-code-editor-rustman) fork of it — MIT licensed, pinned so it can be tweaked without waiting on a release. Thank you for building it.
+- **[rustman-engine](https://github.com/rust-man-org/rustman-engine)** is the scripting language behind pre-request/test scripts — not a third-party crate, this one's written for Rustman itself and lives in its own repo.
 
 And the projects this whole thing stands on, [iced](https://github.com/iced-rs/iced), [reqwest](https://github.com/seanmonstar/reqwest), [tokio](https://github.com/tokio-rs/tokio), [syntect](https://github.com/trishume/syntect), [rusqlite](https://github.com/rusqlite/rusqlite), and [git2-rs](https://github.com/rust-lang/git2-rs).
 

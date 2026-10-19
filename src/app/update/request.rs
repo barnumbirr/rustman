@@ -49,7 +49,7 @@ pub(super) fn handle(state: &mut AppState, msg: RequestMsg) -> Task<Message> {
         RequestMsg::UrlChanged(v) => {
             // No manual `lose_focus()` needed here any more: the code editor
             // now relinquishes focus itself when a click lands outside its
-            // bounds (see `handle_mouse_event` in the vendored editor), so
+            // bounds (see `handle_mouse_event` in the editor widget), so
             // focusing the URL bar already defocuses the body/response editors.
             // Doing it per-keystroke here was a workaround for that missing
             // behaviour, and only ever covered this one field.

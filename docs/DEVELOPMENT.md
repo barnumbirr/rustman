@@ -1,12 +1,12 @@
 # Rustman development notes
 
-This is the doc I keep for myself about how Rustman is built, what is solid, and what is still rough. It is about 18k lines of pure Rust under `src/` plus a vendored scripting engine, an [iced](https://iced.rs) GUI API client that ships as one binary. Entry point is `src/main.rs` which calls `app::run` in `src/app/mod.rs`.
+This is the doc I keep for myself about how Rustman is built, what is solid, and what is still rough. It is about 18k lines of pure Rust under `src/` plus [rustman-engine](https://github.com/rust-man-org/rustman-engine) for scripting, an [iced](https://iced.rs) GUI API client that ships as one binary. Entry point is `src/main.rs` which calls `app::run` in `src/app/mod.rs`.
 
 I try to be honest here. Where something is UI only, stubbed, or half wired, I say so.
 
 ## Toolchain
 
-You need Rust 1.85 or newer. Rustman is edition 2024, as is the vendored `iced-code-editor`, so older toolchains will not build it. The latest stable Rust works fine. You also need a C toolchain and CMake, because git2 builds vendored libgit2 and OpenSSL and rusqlite bundles SQLite, all from source. On Linux add the X, xkb, and dbus dev packages (`libxkbcommon-dev libxi-dev libx11-dev libxcb1-dev libxcb-xkb-dev libdbus-1-dev pkg-config cmake build-essential`). Build with `cargo build --release` and the binary lands at `target/release/rustman`. Day to day I just use `cargo run`.
+You need Rust 1.85 or newer. Rustman is edition 2024, as is the `iced-code-editor` fork it builds against, so older toolchains will not build it. The latest stable Rust works fine. Two dependencies come from `rust-man-org` repos on GitHub (the engine and the editor fork) and are fetched by cargo automatically. You also need a C toolchain and CMake, because git2 builds vendored libgit2 and OpenSSL and rusqlite bundles SQLite, all from source. On Linux add the X, xkb, and dbus dev packages (`libxkbcommon-dev libxi-dev libx11-dev libxcb1-dev libxcb-xkb-dev libdbus-1-dev pkg-config cmake build-essential`). Build with `cargo build --release` and the binary lands at `target/release/rustman`. Day to day I just use `cargo run`.
 
 ## Architecture
 
@@ -45,15 +45,23 @@ Commits use a real author identity from the repo's own git config (`user.name` /
 
 ## Decisions worth remembering
 
-### The vendored, pinned copy of `iced-code-editor`
+### The editor fork and the engine live in their own repos
 
-I need a real code editor for the request body and the response viewer, with line numbers, syntect highlighting, selection, undo and redo, search, folding, and wrapping. `iced-code-editor` does all of that and is already on edition 2024 and iced 0.14, which is exactly my stack. The catch is that pulling it straight from crates.io ties my build to whatever the author publishes next, on a crate the whole UI leans on.
+Two crates that used to sit under `vendor/` are now separate repos under [rust-man-org](https://github.com/rust-man-org), consumed as pinned Cargo dependencies. Contributors still only clone this one repo and build it — cargo fetches both on the first build — so the build flow does not change for them.
 
-So I declare it normally and redirect it to an in tree copy with `[patch.crates-io] iced-code-editor = { path = "vendor/iced-code-editor" }`. Every build compiles `vendor/iced-code-editor`, never the registry version.
+- **[iced-code-editor-rustman](https://github.com/rust-man-org/iced-code-editor-rustman)** is a fork of [LuDog71's widget](https://github.com/LuDog71FR/iced-code-editor) on upstream 0.3.11. It carries Rustman's local patches (text buffer and canvas performance work, cursor, selection, and theme fixes) and a trimmed iced feature set: it used to pull `highlighter`, which dragged in `two-face` and a big embedded bundle of syntax and theme assets nothing here uses. The editor does its own highlighting with syntect on pure Rust `fancy-regex`, so there is no oniguruma C dependency either. The `locales/` dir is load bearing for its i18n and has to stay. Rustman declares the crates.io dependency normally and redirects it with `[patch.crates-io] iced-code-editor = { git = ..., tag = "v0.3.11" }`, so every build compiles the fork, never the registry version.
+- **[rustman-engine](https://github.com/rust-man-org/rustman-engine)** is the scripting language, a normal git dependency pinned to `tag = "v0.1.0"`.
 
-The vendored copy is a snapshot and pin, not a real fork. The public API matches upstream. The only real change I made was trimming the iced features it asks for. It used to pull `highlighter`, which dragged in `two-face` and a big embedded bundle of syntax and theme assets that nothing here uses, so I dropped it. The editor does its own highlighting with syntect on pure Rust `fancy-regex`, so there is no oniguruma C dependency either. The `locales/` dir is load bearing for its i18n and has to stay.
+Both are pinned by tag, so a build only moves when the tag in `Cargo.toml` moves. To bump either: push the change to its repo, tag it, update the tag here, and build once so `Cargo.lock` records the new commit (`cargo update -p rustman-engine`, or `-p iced-code-editor`, refreshes just that entry).
 
-Things to watch as a maintainer. `[patch.crates-io]` means `cargo update` will never bump this, so a newer upstream has to be re-vendored by hand. There is no test pinning the vendored API, so a future re-vendor that changes the `Style` fields or the `Message` type could quietly break `ui/theme.rs` and the body and viewer message wiring. And there is no upstream SHA note in `vendor/`, so the provenance is the commit that landed it.
+For local development against a checkout, override the pin instead of editing the repo — swap the `iced-code-editor` entry in `[patch.crates-io]` to `{ path = "../rust-man-org/iced-code-editor-rustman" }`, and add:
+
+```toml
+[patch."https://github.com/rust-man-org/rustman-engine"]
+rustman-engine = { path = "../rust-man-org/rustman-engine" }
+```
+
+Things to watch as a maintainer. A newer upstream editor has to be re-forked and re-tagged by hand — `cargo update` will never bump it. There is no test pinning the fork's API, so a re-fork that changes the `Style` fields or the `Message` type could quietly break `ui/theme.rs` and the body and viewer message wiring. The engine evolves with the app — a new builtin is a commit there, a new tag, and a tag bump here — so do not let the two drift. And keep these as plain Cargo dependencies: no submodules, no sibling path deps committed, or clone-and-build breaks for contributors.
 
 ### Large responses
 
@@ -111,7 +119,7 @@ Ctrl+Enter or Cmd+Enter sends the current request without moving your hands to t
 | Export Postman v2.1 | works, lossy | Omits query params, auth, cookies, and scripts, so round trips are not lossless. |
 | Git for collections | works | Source Control panel with manual commit, log, restore with a confirmation prompt, branches, working diff, multiple repos, and remote clone, fetch, pull, and push through system git. SQLite stays the source of truth. |
 | Git identity | works | Resolved from the repo's git config. Settings panel lets you set it directly. No hardcoded fallback. |
-| Pre-request and test scripts | works | Both slots run on `vendor/rustman-engine`, a custom language rather than JS. `app/scripting.rs` builds a `HostInput`, calls `rustman_engine::run`, and applies the returned effects (`SetHeader`, `SetBody`, `SetEnv`, `Test`, `Log`), so the Tests tab and its console fill in. A Global Scripts pair in Settings runs first and the request's own script can override it. |
+| Pre-request and test scripts | works | Both slots run on [rustman-engine](https://github.com/rust-man-org/rustman-engine), a custom language rather than JS. `app/scripting.rs` builds a `HostInput`, calls `rustman_engine::run`, and applies the returned effects (`SetHeader`, `SetBody`, `SetEnv`, `Test`, `Log`), so the Tests tab and its console fill in. A Global Scripts pair in Settings runs first and the request's own script can override it. |
 | Scripting built-ins | works | `env`, `set_env`, `header`, `headers`, `set_header`, `cookie`, `body`, `set_body`, `url`, `test`, `print`, `contains`, base64, `jwt_decode`, `json_parse`, `json_stringify`, and AES-256-GCM. No loops, no user-defined functions, no regex. |
 | Self update | works | Checks GitHub releases, downloads and extracts, swaps the binary with `self_replace`, then offers a restart. Pure Rust. |
 | Content-Type suggestions | works | When the header key is `Content-Type`, a picklist of 29 common values shows up. |
@@ -152,7 +160,7 @@ There is one global timeout in Settings and nothing narrower. Add a `timeout_ms`
 
 ### 6. Grow the scripting engine
 
-The language is deliberately small and the next additions are the ones scripts keep needing: loops and array helpers (there is no way to walk a JSON array today), regex matching, and standalone hash and HMAC built-ins, since the engine has AES-256-GCM and base64 but no way to just hash something. `contains` landed in 0.3.13. Each one is a `call_builtin` arm in `vendor/rustman-engine/src/interpreter.rs`, a row in the docs table, and a line in the LLM prompt block on `docs/scripting.html` — the prompt is what an AI is handed as context, so anything missing from it effectively does not exist.
+The language is deliberately small and the next additions are the ones scripts keep needing: loops and array helpers (there is no way to walk a JSON array today), regex matching, and standalone hash and HMAC built-ins, since the engine has AES-256-GCM and base64 but no way to just hash something. `contains` landed in 0.3.13. Each one is a `call_builtin` arm in the [rustman-engine](https://github.com/rust-man-org/rustman-engine) repo, a new tag there, a tag bump here, a row in the docs table, and a line in the LLM prompt block on `docs/scripting.html` — the prompt is what an AI is handed as context, so anything missing from it effectively does not exist.
 
 ### Hygiene
 

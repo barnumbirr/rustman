@@ -165,7 +165,7 @@ impl AppState {
     ///
     /// Deliberately does NOT just OR together every editor's
     /// `has_keyboard_focus()` regardless of which UI tab is showing: the
-    /// vendored `CodeEditor` tracks focus via a single process-wide "last
+    /// `CodeEditor` widget tracks focus via a single process-wide "last
     /// focused editor" id plus a per-instance flag that's only ever updated
     /// while that instance is actually being rendered. An editor that isn't
     /// currently visible (its widgets aren't in the tree, so nothing can

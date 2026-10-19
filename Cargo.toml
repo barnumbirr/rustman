@@ -15,7 +15,8 @@ iced = { version = "0.14", features = ["tokio", "advanced", "image", "svg"] }
 iced_core = "0.14"
 # Glyph advances for label overflow prediction (see ui/tree_label.rs)
 ttf-parser = "0.25"
-# Full-featured code editor widget (line numbers, syntect highlight, selection, undo)
+# Full-featured code editor widget (line numbers, syntect highlight, selection,
+# undo). The rust-man-org fork is pinned by tag in [patch.crates-io] below.
 iced-code-editor = "0.3.11"
 image = { version = "0.25", default-features = false, features = ["png"] }
 
@@ -81,12 +82,19 @@ wry = { version = "0.55", optional = true }
 pdfium-render = { version = "0.9", features = ["thread_safe"] }
 pdfium-bundled = "0.1"
 
-# Pre-request/test scripting language (see vendor/rustman-engine)
-rustman-engine = { path = "vendor/rustman-engine" }
+# Pre-request/test scripting language: its own repo under rust-man-org. Bump
+# the tag to pick up engine changes. For local engine work, point the
+# override at a checkout instead:
+#   [patch."https://github.com/rust-man-org/rustman-engine"]
+#   rustman-engine = { path = "../rust-man-org/rustman-engine" }
+rustman-engine = { git = "https://github.com/rust-man-org/rustman-engine", tag = "v0.1.0" }
 rustls = { version = "0.23.43", default-features = false, features = ["aws_lc_rs"] }
 
+# The editor widget is the rust-man-org fork of upstream iced-code-editor
+# (see its README), pinned by tag. For local work against a checkout, swap
+# this to: iced-code-editor = { path = "../rust-man-org/iced-code-editor-rustman" }
 [patch.crates-io]
-iced-code-editor = { path = "vendor/iced-code-editor" }
+iced-code-editor = { git = "https://github.com/rust-man-org/iced-code-editor-rustman", tag = "v0.3.11" }
 
 [features]
 default = ["webview"]

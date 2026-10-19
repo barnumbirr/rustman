@@ -2542,7 +2542,7 @@ dependencies = [
  "js-sys",
  "log",
  "wasm-bindgen",
- "windows-core 0.62.2",
+ "windows-core 0.61.2",
 ]
 
 [[package]]
@@ -2574,6 +2574,7 @@ dependencies = [
 [[package]]
 name = "iced-code-editor"
 version = "0.3.11"
+source = "git+https://github.com/rust-man-org/iced-code-editor-rustman?tag=v0.3.11#247b8cf56e8c0d044ae9bed7803980ca4ef5b01c"
 dependencies = [
  "iced",
  "iced_aw",
@@ -3810,7 +3811,7 @@ version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "680998035259dcfcafe653688bf2aa6d3e2dc05e98be6ab46afb089dc84f1df8"
 dependencies = [
- "proc-macro-crate 3.5.0",
+ "proc-macro-crate 1.3.1",
  "proc-macro2",
  "quote",
  "syn 2.0.117",
@@ -5494,6 +5495,7 @@ dependencies = [
 [[package]]
 name = "rustman-engine"
 version = "0.1.0"
+source = "git+https://github.com/rust-man-org/rustman-engine?tag=v0.1.0#c86ec3a8021aa4037a1ede6e8c4efb06e801e6c1"
 dependencies = [
  "aes-gcm",
  "base64 0.23.0",
@@ -5675,6 +5677,7 @@ version = "1.0.150"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e8014e44b4736ed0538adeecded0fce2a272f22dc9578a7eb6b2d9993c74cfb9"
 dependencies = [
+ "indexmap",
  "itoa",
  "memchr",
  "serde",
